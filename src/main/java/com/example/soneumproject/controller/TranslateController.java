@@ -1,5 +1,6 @@
 package com.example.soneumproject.controller;
 
+import com.example.soneumproject.services.PythonServerConnector;
 import com.example.soneumproject.services.UnityFunctionService;
 import com.google.cloud.texttospeech.v1.*;
 import com.google.gson.Gson;
@@ -9,139 +10,38 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 @RestController
 @RequestMapping("/translate")
-
-/* TODO: 추후 CORS 제어 파일 생성 예정 or 링크 변경 예정  */
-@CrossOrigin(origins = {"http://localhost:3000"})
 public class TranslateController {
     @Autowired
     private UnityFunctionService unityFunctionService;
 
-    @GetMapping("/")
-    public String translateConnected() {
-        System.out.println("env: " + System.getenv());
-        return "Connected Ok";
-    }
+    @PostMapping("/voice")
+    public String translateVoice(@RequestParam(value = "text", required = false) String text) throws IOException {
+        JsonObject jsonObject = new JsonObject();
+        jsonObject.addProperty("voice_text", text);
 
-    @GetMapping("/voice")
-    public String translateVoice(@RequestParam("text") String text) {
-        String responseMessage = "";
-        List<String> unityFunctionNames = new ArrayList<>();
-        int responseCode = 0;
+        PythonServerConnector serverConnector = new PythonServerConnector(unityFunctionService);
 
-        try {
-            URL url = new URL("http://127.0.0.1:5000/soneum/utils/translate/voice");
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-
-            connection.setRequestMethod("POST");
-            connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Accept","application/json");
-
-            connection.setDoOutput(true);
-            connection.setDoInput(true);
-
-            JsonObject jsonObject = new JsonObject();
-            jsonObject.addProperty("voice_text", text);
-            byte[] jsonData = jsonObject.toString().getBytes(StandardCharsets.UTF_8);
-
-            OutputStream os = connection.getOutputStream();
-            os.write(jsonData);
-            os.flush();
-            os.close();
-
-            responseCode = connection.getResponseCode();
-
-            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
-            StringBuilder response = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
-            }
-            reader.close();
-
-            responseMessage = response.toString();
-
-            String[] words = responseMessage.replaceAll("[{}\"]", "").replace("[", "").replace("]", "").replace("message: ", "").split(", ");
-            System.out.println(Arrays.toString(words));
-
-            for (String word : words) {
-                String function = unityFunctionService.getFunctionName(word.trim());
-                if (function != null) {
-                    unityFunctionNames.add(function);
-                }
-            }
-        } catch (IOException error) {
-            error.printStackTrace();
-        }
-
-        JsonObject jsonResponse = new JsonObject();
-        jsonResponse.addProperty("code", responseCode);
-        jsonResponse.add("message", new Gson().toJsonTree(unityFunctionNames));
-
-        return jsonResponse.toString();
+        return serverConnector.connectToPythonServer("voice", jsonObject);
     }
 
     @PostMapping("/sign")
-    public String translateSign(@RequestParam(value = "sign_video", required = false) String video_data) {
-        String responseMessage = "";
-        int responseCode = 0;
+    public String translateSign(@RequestParam(value = "sign_video", required = false) String video_data) throws IOException {
+        byte[] bytes = Base64.getDecoder().decode(video_data);
+        JsonObject jsonObject = new JsonObject();
+        jsonObject.addProperty("video_data", Base64.getEncoder().encodeToString(bytes));
 
-        try {
-            byte[] bytes = Base64.getDecoder().decode(video_data);
+        PythonServerConnector serverConnector = new PythonServerConnector(unityFunctionService);
 
-            URL url = new URL("http://127.0.0.1:5000/soneum/utils/translate/sign");
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-
-            connection.setRequestMethod("POST");
-            connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setDoOutput(true);
-            connection.setDoInput(true);
-
-            JsonObject jsonObject = new JsonObject();
-            jsonObject.addProperty("video_data", Base64.getEncoder().encodeToString(bytes));  // encode file bytes to Base64 string
-            byte[] jsonData = jsonObject.toString().getBytes(StandardCharsets.UTF_8);
-
-            try (OutputStream os = connection.getOutputStream()) {
-                os.write(jsonData);
-                os.flush();
-            }
-
-            responseCode = connection.getResponseCode();
-            InputStream inputStream = responseCode == 201
-                    ? connection.getInputStream()
-                    : connection.getErrorStream();
-
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
-                StringBuilder response = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    response.append(line);
-                }
-                responseMessage = response.toString();
-            }
-
-            connection.disconnect();
-        } catch (IOException error) {
-            responseMessage = "Error: " + error.getMessage();
-        }
-
-        JsonObject jsonResponse = new JsonObject();
-        jsonResponse.addProperty("code", responseCode);
-        jsonResponse.add("message", new Gson().toJsonTree(responseMessage));
-
-        return jsonResponse.toString();
+        return serverConnector.connectToPythonServer("sign", jsonObject);
     }
 
     @GetMapping("/text")
     public String makeVoiceBase64(@RequestParam("text") String text, @RequestParam("selectedGender") Boolean selectedGender) {
-        // NOTE: 번역 완료된 텍스트와 성별을 선택하여 클릭 시 음성 합성 실행 - 구현 완료 / FrontEnd 테스트 완료
+        // NOTE: 번역 완료된 텍스트와 성별을 선택하여 클릭 시 음성 합성 실행
         
         try (TextToSpeechClient textToSpeechClient = TextToSpeechClient.create()) {
             // 입력으로 사용할 텍스트 설정

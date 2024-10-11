@@ -19,8 +19,6 @@ public class UnityFunction {
     @Column(name = "function_name", nullable = false)
     private String functionName;
 
-
-
     @Column(name = "korean_word", nullable = false)
     private String koreanWord;
 
